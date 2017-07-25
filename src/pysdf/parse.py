@@ -18,6 +18,7 @@ models_paths = [os.path.expanduser('~/.gazebo/models/')];
 if 'GAZEBO_MODEL_PATH' in os.environ:
   model_path_env = os.environ['GAZEBO_MODEL_PATH'].split(':');
   models_paths = models_paths + model_path_env
+  print ('GAZEBO_MODEL_PATH: %s'%(str(model_path_env)))
 
 mesh_path_env_name='MESH_WORKSPACE_PATH'
 if mesh_path_env_name in os.environ:
@@ -64,12 +65,15 @@ find_mesh_in_catkin_ws.cache = []
 
 def find_model_in_gazebo_dir(modelname):
   canonical_sdf_name = 'model.sdf'
+
+  # populating models cache
   if not find_model_in_gazebo_dir.cache:
     for models_path in models_paths:
       for dirpath, dirs, files in os.walk(models_path, followlinks=True):
         if canonical_sdf_name in files:
           files.remove(canonical_sdf_name)
           files = [canonical_sdf_name] + files
+          #print("Found %s file for model %s"%(canonical_sdf_name,modelname))
         for currfile in files:
           if not currfile.endswith('.sdf'):
             continue
@@ -87,17 +91,26 @@ def find_model_in_gazebo_dir(modelname):
             continue
           modelname_in_file = modelnode.attrib['name']
           if modelname_in_file not in find_model_in_gazebo_dir.cache:
-            #print('Adding (name=%s, path=%s) to model cache' % (modelname_in_file, filename_path))
+            print('Adding (name=%s, path=%s) to model cache' % (modelname_in_file, filename_path))
             find_model_in_gazebo_dir.cache[modelname_in_file] = filename_path
     #print(find_model_in_gazebo_dir.cache)
-  if '/' in modelname:  # path-based
+  
+  # looking in directories
+  if find_model_in_gazebo_dir.cache.has_key(modelname):
+    # looking in cache
+    ret = find_model_in_gazebo_dir.cache.get(modelname)
+    print("Retrieving model '%s' path from cache: %s"%(modelname,ret))
+
+    return ret
+  else:
     for models_path in models_paths + ['.']:
       modelfile_paths = glob.glob(os.path.join(models_path, modelname, '*.sdf'))
       for modelfile_path in modelfile_paths:
         if os.path.exists(modelfile_path):
+          print("Found model '%s' in path %s"%(modelname,modelfile_path)) 
           return modelfile_path
-  else:  # name-based
-    return find_model_in_gazebo_dir.cache.get(modelname)
+  
+
 find_model_in_gazebo_dir.cache = {}
 
 
@@ -111,7 +124,7 @@ def prettyXML(uglyXML):
 
 def get_tag(node, tagname, default = None):
   tag = node.findall(tagname)
-  if tag:
+  if tag and (tag[0].text is not None):
     return sanitize_xml_input_name(tag[0].text)
   else:
     return default
@@ -404,10 +417,14 @@ class Model(SpatialEntity):
 
   def build_tree(self):
     for joint in self.joints:
+
       joint.tree_parent_link = self.get_link(joint.parent)
       if not joint.tree_parent_link:
         print('Failed to find parent %s of joint %s. Aborting' % (joint.parent, joint.name))
         sys.exit(1)
+        #print("Failed to find parent link for joint '%s', defaulting to 'world'"%(joint.name))
+        #joint.tree_parent_link = 'world'
+
       joint.tree_child_link = self.get_link(joint.child)
       if not joint.tree_child_link:
         print('Failed to find child %s of joint %s. Aborting' % (joint.child, joint.name))
@@ -415,6 +432,7 @@ class Model(SpatialEntity):
         return None
       joint.tree_parent_link.tree_child_joints.append(joint)
       joint.tree_child_link.tree_parent_joint = joint
+      print("Added joint '%s' to model tree"%(joint.name))
     for submodel in self.submodels:
       submodel.build_tree()
 
